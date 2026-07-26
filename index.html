@@ -126,7 +126,7 @@
         </div>
     </div>
 
-    <!-- Modal Instellingen (Geconfigureerd voor 2 Repos) -->
+    <!-- Modal Instellingen -->
     <div id="key-modal" class="fixed inset-0 bg-black/75 flex items-center justify-center hidden p-4 z-50">
         <div class="bg-slate-800 p-6 rounded-xl max-w-md w-full border border-slate-700 space-y-4 shadow-2xl">
             <div class="flex justify-between items-center border-b border-slate-700 pb-3">
@@ -164,13 +164,13 @@
     </div>
 
     <script>
-        // CONFIGURATIE MET BEIDE REPOSITORIES
+        // CONFIGURATIE
         let config = JSON.parse(localStorage.getItem('bodysync_config')) || {
             geminiKey: '',
             githubToken: '',
             githubUser: 'timmit147',
-            appRepo: 'bodysync-chat',  // Repo voor HTML & Code
-            dataRepo: 'bodysync'       // Repo voor Gezondheidsdata JSONs
+            appRepo: 'bodysync-chat',
+            dataRepo: 'bodysync'
         };
 
         let cachedLogs = [];
@@ -231,7 +231,7 @@
             fetchGitHubLogs();
         }
 
-        // --- GITHUB HELPER FUNCTIONS ---
+        // --- GITHUB API HELPERS ---
 
         function utf8_to_b64(str) {
             return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
@@ -372,7 +372,7 @@
 
                 let statusInfo = '';
 
-                // SCENARIO 1: Gezondheidslog -> DATA REPO (bodysync)
+                // SCENARIO 1: Gezondheidslog -> DATA REPO
                 if (parsed.type === 'log' && parsed.logData) {
                     parsed.logData.datum = new Date().toLocaleString('nl-NL');
                     const { content: currentLogsContent, sha } = await fetchGitHubFile(config.dataRepo, 'health_log.json');
@@ -385,13 +385,13 @@
                     statusInfo = `<div class="mt-2 text-[11px] text-emerald-400 font-mono">✓ Opgeslagen in Data Repo: <strong>${config.dataRepo}/health_log.json</strong></div>`;
                 }
 
-                // SCENARIO 2: Visuele Widget -> Scherm injection
+                // SCENARIO 2: Visuele Widget
                 else if (parsed.type === 'ui_widget' && parsed.htmlSnippet) {
-                    injectCustomWidget(parsed.htmlSnippet, parsed.widgetTitle || 'Nieuw Widget');
+                    injectCustomWidget(parsed.htmlSnippet, parsed.widgetTitle || 'Nieuwe Widget');
                     statusInfo = `<div class="mt-2 text-[11px] text-sky-400 font-mono">⚡ Nieuwe widget toegevoegd aan scherm!</div>`;
                 }
 
-                // SCENARIO 3: Nieuw Bestand / Pagina -> APP REPO (bodysync-chat)
+                // SCENARIO 3: Nieuw Bestand / Pagina -> APP REPO
                 else if (parsed.type === 'create_file' && parsed.fileName && parsed.fileContent) {
                     const { sha } = await fetchGitHubFile(config.appRepo, parsed.fileName);
                     await commitGitHubFile(config.appRepo, parsed.fileName, parsed.fileContent, `AI gemaakt bestand: ${parsed.fileName}`, sha);
@@ -451,26 +451,26 @@
             if (el) el.querySelector('div').innerHTML = text;
         }
 
-        // --- GEMINI API MET STRICT JSON-MODE ---
+        // --- GEMINI API MET STRIKTE SYSTEM INSTRUCTION & JSON-MODE ---
 
         async function callGeminiSmart(userPrompt) {
             const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'];
             
-            const systemInstructionText = `Je bent de BodySync AI. Je reageert ALTIJD in een geldig JSON-formaat.
+            const systemPromptText = `Je bent de BodySync AI assistent. Je antwoordt ALTIJD met een geldig JSON-object.
 
-Formaten die je MOET gebruiken afhankelijk van de vraag:
+Gebruik exact een van de volgende structuren:
 
-1. Gezondheidsdata loggen (stappen, slaap, gewicht, etc.):
+1. Voor gezondheidsdata loggen:
 {
   "type": "log",
   "reply": "Korte vriendelijke reactie naar de gebruiker",
   "logData": {
     "categorie": "Slaap|Beweging|Voeding|Klachten|Herstel|Overig",
-    "samenvatting": "Korte samenvatting van de data"
+    "samenvatting": "Korte samenvatting van de ingevoerde data"
   }
 }
 
-2. Visuele UI Widget op scherm maken:
+2. Voor visuele UI widgets op het scherm:
 {
   "type": "ui_widget",
   "reply": "Reactie naar de gebruiker",
@@ -478,7 +478,7 @@ Formaten die je MOET gebruiken afhankelijk van de vraag:
   "htmlSnippet": "<div class='text-xs space-y-1'>...</div>"
 }
 
-3. Nieuwe HTML pagina / bestand maken (zoals doelen.html, schema.html):
+3. Voor het maken van een nieuw HTML bestand of pagina:
 {
   "type": "create_file",
   "reply": "Reactie naar de gebruiker",
@@ -486,15 +486,15 @@ Formaten die je MOET gebruiken afhankelijk van de vraag:
   "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'></script></head><body class='bg-slate-900 text-white p-6'><h1>Mijn Gezondheidsdoelen</h1></body></html>"
 }
 
-4. Normaal chatantwoord:
+4. Voor een normaal chatgesprek of vraag:
 {
   "type": "chat",
-  "reply": "Jouw antwoord hier"
+  "reply": "Jouw duidelijke antwoord hier"
 }`;
 
             const payload = {
-                system_instruction: {
-                    parts: [{ text: systemInstructionText }]
+                systemInstruction: {
+                    parts: [{ text: systemPromptText }]
                 },
                 contents: [{
                     parts: [{ text: userPrompt }]
@@ -525,25 +525,33 @@ Formaten die je MOET gebruiken afhankelijk van de vraag:
 
         function parseSmartOutput(rawText) {
             try {
-                let cleanText = rawText.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').trim();
-                const parsed = JSON.parse(cleanText);
+                // Zoek alleen het geldige JSON blok tussen de eerste '{' en laatste '}'
+                const firstBrace = rawText.indexOf('{');
+                const lastBrace = rawText.lastIndexOf('}');
                 
-                return {
-                    reply: parsed.reply || 'Verwerkt.',
-                    type: parsed.type || 'chat',
-                    logData: parsed.logData || null,
-                    widgetTitle: parsed.widgetTitle || 'Widget',
-                    htmlSnippet: parsed.htmlSnippet || '',
-                    fileName: parsed.fileName || '',
-                    fileContent: parsed.fileContent || ''
-                };
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                    const cleanJsonStr = rawText.substring(firstBrace, lastBrace + 1);
+                    const parsed = JSON.parse(cleanJsonStr);
+                    
+                    return {
+                        reply: parsed.reply || 'Verwerkt.',
+                        type: parsed.type || 'chat',
+                        logData: parsed.logData || null,
+                        widgetTitle: parsed.widgetTitle || 'Widget',
+                        htmlSnippet: parsed.htmlSnippet || '',
+                        fileName: parsed.fileName || '',
+                        fileContent: parsed.fileContent || ''
+                    };
+                }
             } catch (e) {
-                console.error("JSON parse error:", e, rawText);
-                return { 
-                    reply: "Er ging iets mis bij het verwerken van het AI-antwoord. Probeer het nogmaals.", 
-                    type: 'chat' 
-                };
+                console.error("JSON parse error:", e);
             }
+
+            // Fallback als de output onverhoopt geen JSON bevat
+            return { 
+                reply: rawText, 
+                type: 'chat' 
+            };
         }
     </script>
 </body>
