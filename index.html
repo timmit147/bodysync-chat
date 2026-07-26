@@ -231,7 +231,7 @@
             fetchGitHubLogs();
         }
 
-        // --- GITHUB HELPER FUNCTIONS (ONDERSTEUNT MEERDERE REPOS) ---
+        // --- GITHUB HELPER FUNCTIONS ---
 
         function utf8_to_b64(str) {
             return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
@@ -284,7 +284,6 @@
 
         async function fetchGitHubLogs() {
             try {
-                // Haalt health_log.json op uit de DATA repo
                 const { content } = await fetchGitHubFile(config.dataRepo, 'health_log.json');
                 cachedLogs = content ? JSON.parse(content) : [];
                 renderLogs(cachedLogs);
@@ -327,7 +326,6 @@
             const topCat = Object.keys(catCounts).reduce((a, b) => catCounts[a] > catCounts[b] ? a : b, '-');
             document.getElementById('stat-top-cat').innerText = topCat;
 
-            // Chart 1: Categorieën
             const ctxCat = document.getElementById('categoryChart').getContext('2d');
             if (catChartInstance) catChartInstance.destroy();
             catChartInstance = new Chart(ctxCat, {
@@ -342,7 +340,6 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } } } }
             });
 
-            // Chart 2: Verloop
             const ctxTime = document.getElementById('timelineChart').getContext('2d');
             if (timeChartInstance) timeChartInstance.destroy();
             const logsReversed = [...cachedLogs].reverse();
@@ -356,7 +353,7 @@
             });
         }
 
-        // --- SLIMME CHAT + DUAL REPO DISPATCHER ---
+        // --- CHAT & AI DISPATCHER LOGICA ---
 
         async function handleSend(e) {
             e.preventDefault();
@@ -375,7 +372,7 @@
 
                 let statusInfo = '';
 
-                // SCENARIO 1: Gezondheidslog -> Slaan we op in DATA REPO (bodysync)
+                // SCENARIO 1: Gezondheidslog -> DATA REPO (bodysync)
                 if (parsed.type === 'log' && parsed.logData) {
                     parsed.logData.datum = new Date().toLocaleString('nl-NL');
                     const { content: currentLogsContent, sha } = await fetchGitHubFile(config.dataRepo, 'health_log.json');
@@ -388,13 +385,13 @@
                     statusInfo = `<div class="mt-2 text-[11px] text-emerald-400 font-mono">✓ Opgeslagen in Data Repo: <strong>${config.dataRepo}/health_log.json</strong></div>`;
                 }
 
-                // SCENARIO 2: Visuele Widget -> Live injected op huidig scherm
+                // SCENARIO 2: Visuele Widget -> Scherm injection
                 else if (parsed.type === 'ui_widget' && parsed.htmlSnippet) {
                     injectCustomWidget(parsed.htmlSnippet, parsed.widgetTitle || 'Nieuw Widget');
                     statusInfo = `<div class="mt-2 text-[11px] text-sky-400 font-mono">⚡ Nieuwe widget toegevoegd aan scherm!</div>`;
                 }
 
-                // SCENARIO 3: Nieuw Bestand / Pagina -> Opslaan in APP REPO (bodysync-chat)
+                // SCENARIO 3: Nieuw Bestand / Pagina -> APP REPO (bodysync-chat)
                 else if (parsed.type === 'create_file' && parsed.fileName && parsed.fileContent) {
                     const { sha } = await fetchGitHubFile(config.appRepo, parsed.fileName);
                     await commitGitHubFile(config.appRepo, parsed.fileName, parsed.fileContent, `AI gemaakt bestand: ${parsed.fileName}`, sha);
@@ -454,45 +451,58 @@
             if (el) el.querySelector('div').innerHTML = text;
         }
 
+        // --- GEMINI API MET STRICT JSON-MODE ---
+
         async function callGeminiSmart(userPrompt) {
             const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-            const systemPrompt = `
-                Je bent de BodySync AI. Je kunt 3 acties uitvoeren op basis van de vraag:
+            
+            const systemInstructionText = `Je bent de BodySync AI. Je reageert ALTIJD in een geldig JSON-formaat.
 
-                1. GEZONDHEIDSDATA INVOER (stappen, slaap, eten, klachten, gewicht):
-                   Geef antwoord en een JSON-blok voor "log":
-                   \`\`\`json
-                   {
-                     "type": "log",
-                     "logData": {
-                       "categorie": "Slaap|Beweging|Voeding|Klachten|Herstel|Overig",
-                       "samenvatting": "Korte samenvatting van de data"
-                     }
-                   }
-                   \`\`\`
+Formaten die je MOET gebruiken afhankelijk van de vraag:
 
-                2. VISUELE WIDGET AANMAKEN (bijv: "Maak een teller", "Maak een snelle gewicht tracker"):
-                   Geef antwoord en een JSON-blok voor "ui_widget":
-                   \`\`\`json
-                   {
-                     "type": "ui_widget",
-                     "widgetTitle": "Titel van de widget",
-                     "htmlSnippet": "<div class='text-xs space-y-1'><label class='block text-slate-400'>Gewicht (kg):</label><input type='number' class='w-full bg-slate-900 border border-slate-700 rounded p-1 text-slate-100' placeholder='75.5'><button class='w-full bg-emerald-600 text-white rounded py-1 text-xs mt-1'>Opslaan</button></div>"
-                   }
-                   \`\`\`
+1. Gezondheidsdata loggen (stappen, slaap, gewicht, etc.):
+{
+  "type": "log",
+  "reply": "Korte vriendelijke reactie naar de gebruiker",
+  "logData": {
+    "categorie": "Slaap|Beweging|Voeding|Klachten|Herstel|Overig",
+    "samenvatting": "Korte samenvatting van de data"
+  }
+}
 
-                3. NIEUWE HTML PAGINA OF BESTAND MAAK (bijv: "Maak een doelen.html pagina", "Maak een voedingsschema.html"):
-                   Geef antwoord en een JSON-blok voor "create_file":
-                   \`\`\`json
-                   {
-                     "type": "create_file",
-                     "fileName": "doelen.html",
-                     "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'></script></head><body class='bg-slate-900 text-white p-6'><h1 class='text-xl font-bold text-emerald-400'>Mijn Gezondheidsdoelen</h1></body></html>"
-                   }
-                   \`\`\`
+2. Visuele UI Widget op scherm maken:
+{
+  "type": "ui_widget",
+  "reply": "Reactie naar de gebruiker",
+  "widgetTitle": "Titel van de widget",
+  "htmlSnippet": "<div class='text-xs space-y-1'>...</div>"
+}
 
-                Gebruikersvraag: "${userPrompt}"
-            `;
+3. Nieuwe HTML pagina / bestand maken (zoals doelen.html, schema.html):
+{
+  "type": "create_file",
+  "reply": "Reactie naar de gebruiker",
+  "fileName": "doelen.html",
+  "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'></script></head><body class='bg-slate-900 text-white p-6'><h1>Mijn Gezondheidsdoelen</h1></body></html>"
+}
+
+4. Normaal chatantwoord:
+{
+  "type": "chat",
+  "reply": "Jouw antwoord hier"
+}`;
+
+            const payload = {
+                system_instruction: {
+                    parts: [{ text: systemInstructionText }]
+                },
+                contents: [{
+                    parts: [{ text: userPrompt }]
+                }],
+                generationConfig: {
+                    responseMimeType: "application/json"
+                }
+            };
 
             for (const model of models) {
                 try {
@@ -500,7 +510,7 @@
                     const res = await fetch(endpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })
+                        body: JSON.stringify(payload)
                     });
                     const data = await res.json();
                     if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
@@ -514,16 +524,26 @@
         }
 
         function parseSmartOutput(rawText) {
-            const jsonMatch = rawText.match(/```json\n([\s\S]*?)\n```/);
-            let reply = rawText.replace(/```json\n[\s\S]*?\n```/, '').trim();
-
-            if (jsonMatch) {
-                try {
-                    const parsedJson = JSON.parse(jsonMatch[1]);
-                    return { reply, ...parsedJson };
-                } catch (e) {}
+            try {
+                let cleanText = rawText.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').trim();
+                const parsed = JSON.parse(cleanText);
+                
+                return {
+                    reply: parsed.reply || 'Verwerkt.',
+                    type: parsed.type || 'chat',
+                    logData: parsed.logData || null,
+                    widgetTitle: parsed.widgetTitle || 'Widget',
+                    htmlSnippet: parsed.htmlSnippet || '',
+                    fileName: parsed.fileName || '',
+                    fileContent: parsed.fileContent || ''
+                };
+            } catch (e) {
+                console.error("JSON parse error:", e, rawText);
+                return { 
+                    reply: "Er ging iets mis bij het verwerken van het AI-antwoord. Probeer het nogmaals.", 
+                    type: 'chat' 
+                };
             }
-            return { reply, type: 'chat' };
         }
     </script>
 </body>
