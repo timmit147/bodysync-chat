@@ -446,12 +446,12 @@
             if (el) el.querySelector('div').innerHTML = text;
         }
 
-        // --- GEMINI API MET STRIKTE SYSTEM INSTRUCTION & JSON-MODE ---
+        // --- GEMINI API (MET BULLETPROOF PROMPTING & ECHTE FOUTMELDINGEN) ---
 
         async function callGeminiSmart(userPrompt) {
-            const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+            const models = ['gemini-2.0-flash', 'gemini-1.5-flash']; // Veilige modellenlijst
             
-            // LET OP DE GE-ESCAPTE SCRIPT TAG HIERONDER: <\/script> 
+            // LET OP: Systeem instructie is nu samengevoegd met je prompt om API restricties te omzeilen
             const systemPromptText = `Je bent de BodySync AI assistent. Je antwoordt ALTIJD met een geldig JSON-object.
 
 Gebruik exact een van de volgende structuren:
@@ -474,7 +474,7 @@ Gebruik exact een van de volgende structuren:
   "htmlSnippet": "<div class='text-xs space-y-1'>...</div>"
 }
 
-3. Voor het maken van een nieuw HTML bestand of pagina:
+3. Voor het maken van een HTML bestand:
 {
   "type": "create_file",
   "reply": "Reactie naar de gebruiker",
@@ -482,23 +482,22 @@ Gebruik exact een van de volgende structuren:
   "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'><\\/script></head><body class='bg-slate-900 text-white p-6'><h1>Mijn Gezondheidsdoelen</h1></body></html>"
 }
 
-4. Voor een normaal chatgesprek of vraag:
+4. Voor een normaal chatgesprek:
 {
   "type": "chat",
   "reply": "Jouw duidelijke antwoord hier"
 }`;
 
             const payload = {
-                systemInstruction: {
-                    parts: [{ text: systemPromptText }]
-                },
                 contents: [{
-                    parts: [{ text: userPrompt }]
+                    parts: [{ text: systemPromptText + "\\n\\n--- VRAAG VAN DE GEBRUIKER ---\\n" + userPrompt }]
                 }],
                 generationConfig: {
                     responseMimeType: "application/json"
                 }
             };
+
+            let errorMessage = "Geen specifieke fout gevonden.";
 
             for (const model of models) {
                 try {
@@ -508,15 +507,25 @@ Gebruik exact een van de volgende structuren:
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
+                    
                     const data = await res.json();
+                    
                     if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
                         return data.candidates[0].content.parts[0].text;
+                    } else {
+                        // Vang de ECHTE fout van Google op
+                        console.warn(`Model ${model} weigerde:`, data);
+                        if (data.error && data.error.message) {
+                            errorMessage = data.error.message;
+                        }
                     }
                 } catch (e) {
-                    console.warn(`Model ${model} overgeslagen...`);
+                    console.warn(`Fetch error bij ${model}:`, e);
+                    errorMessage = e.message;
                 }
             }
-            throw new Error('Gemini API is momenteel niet bereikbaar.');
+            // Als we hier zijn, gooi dan de ECHTE fout naar het scherm!
+            throw new Error(`Google API weigert de verbinding. Reden: ${errorMessage}`);
         }
 
         function parseSmartOutput(rawText) {
