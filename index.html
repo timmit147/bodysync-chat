@@ -372,7 +372,6 @@
 
                 let statusInfo = '';
 
-                // SCENARIO 1: Gezondheidslog -> DATA REPO
                 if (parsed.type === 'log' && parsed.logData) {
                     parsed.logData.datum = new Date().toLocaleString('nl-NL');
                     const { content: currentLogsContent, sha } = await fetchGitHubFile(config.dataRepo, 'health_log.json');
@@ -384,14 +383,10 @@
                     renderLogs(logsArr);
                     statusInfo = `<div class="mt-2 text-[11px] text-emerald-400 font-mono">✓ Opgeslagen in Data Repo: <strong>${config.dataRepo}/health_log.json</strong></div>`;
                 }
-
-                // SCENARIO 2: Visuele Widget
                 else if (parsed.type === 'ui_widget' && parsed.htmlSnippet) {
                     injectCustomWidget(parsed.htmlSnippet, parsed.widgetTitle || 'Nieuwe Widget');
                     statusInfo = `<div class="mt-2 text-[11px] text-sky-400 font-mono">⚡ Nieuwe widget toegevoegd aan scherm!</div>`;
                 }
-
-                // SCENARIO 3: Nieuw Bestand / Pagina -> APP REPO
                 else if (parsed.type === 'create_file' && parsed.fileName && parsed.fileContent) {
                     const { sha } = await fetchGitHubFile(config.appRepo, parsed.fileName);
                     await commitGitHubFile(config.appRepo, parsed.fileName, parsed.fileContent, `AI gemaakt bestand: ${parsed.fileName}`, sha);
@@ -456,6 +451,7 @@
         async function callGeminiSmart(userPrompt) {
             const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'];
             
+            // LET OP DE GE-ESCAPTE SCRIPT TAG HIERONDER: <\/script> 
             const systemPromptText = `Je bent de BodySync AI assistent. Je antwoordt ALTIJD met een geldig JSON-object.
 
 Gebruik exact een van de volgende structuren:
@@ -483,7 +479,7 @@ Gebruik exact een van de volgende structuren:
   "type": "create_file",
   "reply": "Reactie naar de gebruiker",
   "fileName": "doelen.html",
-  "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'></script></head><body class='bg-slate-900 text-white p-6'><h1>Mijn Gezondheidsdoelen</h1></body></html>"
+  "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'><\\/script></head><body class='bg-slate-900 text-white p-6'><h1>Mijn Gezondheidsdoelen</h1></body></html>"
 }
 
 4. Voor een normaal chatgesprek of vraag:
@@ -525,7 +521,6 @@ Gebruik exact een van de volgende structuren:
 
         function parseSmartOutput(rawText) {
             try {
-                // Zoek alleen het geldige JSON blok tussen de eerste '{' en laatste '}'
                 const firstBrace = rawText.indexOf('{');
                 const lastBrace = rawText.lastIndexOf('}');
                 
@@ -546,12 +541,7 @@ Gebruik exact een van de volgende structuren:
             } catch (e) {
                 console.error("JSON parse error:", e);
             }
-
-            // Fallback als de output onverhoopt geen JSON bevat
-            return { 
-                reply: rawText, 
-                type: 'chat' 
-            };
+            return { reply: rawText, type: 'chat' };
         }
     </script>
 </body>
