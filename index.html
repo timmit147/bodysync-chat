@@ -260,7 +260,7 @@
             `).join('');
         }
 
-        // --- AI CHAT LOGICA ---
+        // --- AI CHAT LOGICA MET AUTOMATISCHE MODEL-FALLBACK ---
 
         async function handleSend(e) {
             e.preventDefault();
@@ -333,9 +333,14 @@
         }
 
         async function callGeminiAPI(userText) {
-            // Geüpdatet naar gemini-2.0-flash voor een werkende API-call
-            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiKey}`;
-            
+            // Modellenreeks: als 1 model de quota overschrijdt, probeert de code automatisch het volgende model!
+            const models = [
+                'gemini-2.0-flash-lite',
+                'gemini-2.0-flash',
+                'gemini-1.5-flash',
+                'gemini-2.5-flash'
+            ];
+
             const prompt = `
                 Je bent een slimme AI-gezondheidscoach voor het hele lichaam. Gebruiker typt: "${userText}".
                 
@@ -351,15 +356,32 @@
                 \`\`\`
             `;
 
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-            });
+            let lastErrorMessage = '';
 
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error?.message || 'Gemini API fout');
-            return data.candidates[0].content.parts[0].text;
+            for (const model of models) {
+                try {
+                    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.geminiKey}`;
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                        return data.candidates[0].content.parts[0].text;
+                    }
+
+                    lastErrorMessage = data.error?.message || `Model ${model} niet beschikbaar`;
+                    console.warn(`Model ${model} mislukt, schakelt over naar volgend model...`, lastErrorMessage);
+
+                } catch (e) {
+                    lastErrorMessage = e.message;
+                }
+            }
+
+            throw new Error('De gratis limiet is bereikt of de API is overbelast. Wacht 15 seconden en probeer het opnieuw.');
         }
 
         function parseAIOutput(rawText) {
