@@ -16,7 +16,7 @@
             </div>
             <div>
                 <h1 class="text-base font-bold text-slate-100 leading-tight">BodySync Chat</h1>
-                <p class="text-[11px] text-emerald-400 font-medium">Gekoppeld aan privé-repo: <span id="connected-repo-label" class="underline">bodysync</span></p>
+                <p class="text-[11px] text-emerald-400 font-medium">Gekoppeld aan: <span id="connected-user-label" class="font-bold">timmit147</span> / <span id="connected-repo-label" class="underline">bodysync</span></p>
             </div>
         </div>
         <button onclick="toggleKeyModal()" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-2 rounded-lg border border-slate-600 transition flex items-center gap-1.5">
@@ -32,8 +32,8 @@
             <div id="chat-box" class="flex-1 p-4 overflow-y-auto space-y-4">
                 <div class="text-center text-slate-500 my-12 text-sm space-y-2">
                     <p class="text-2xl">👋</p>
-                    <p class="font-medium">Welkom bij BodySync!</p>
-                    <p class="text-xs text-slate-600 max-w-sm mx-auto">Typ wat je vandaag hebt gedaan (stappen, slaap, voeding, klachten of workouts). De AI analyseert het en slaat het op in je privé-repo <code class="text-emerald-400">bodysync</code>.</p>
+                    <p class="font-medium text-slate-300">Welkom bij BodySync!</p>
+                    <p class="text-xs text-slate-500 max-w-sm mx-auto">Typ wat je vandaag hebt gedaan (stappen, slaap, voeding, klachten of workouts). De AI verwerkt het en slaat het direct op in je privé-repo <code class="text-emerald-400 font-mono">bodysync</code>.</p>
                 </div>
             </div>
 
@@ -42,7 +42,7 @@
                 <input 
                     type="text" 
                     id="user-input" 
-                    placeholder="Bijv: Vandaag 8500 stappen gezet, 7.5 uur geslapen en gezond gegeten..." 
+                    placeholder="Bijv: Vandaag 8500 stappen gezet, 7.5 uur geslapen en gefietst..." 
                     class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 text-slate-100 placeholder-slate-500"
                     required
                 >
@@ -57,7 +57,7 @@
         <aside class="w-80 bg-slate-800/40 p-4 overflow-y-auto hidden md:block">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    📂 <span>bodysync / health_log.json</span>
+                    📂 <span id="sidebar-repo-title">bodysync / health_log.json</span>
                 </h2>
                 <button onclick="fetchGitHubLogs()" class="text-xs text-emerald-400 hover:text-emerald-300 underline">Ververs</button>
             </div>
@@ -85,12 +85,12 @@
                 <div>
                     <label class="block text-slate-300 font-medium mb-1">GitHub Personal Access Token (PAT)</label>
                     <input type="password" id="github-token" placeholder="github_pat_..." class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
-                    <p class="text-[10px] text-slate-500 mt-0.5">Token met 'Contents: Read and Write' rechten.</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Token met 'Contents: Read & Write' rechten.</p>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                     <div>
                         <label class="block text-slate-300 font-medium mb-1">GitHub Gebruikersnaam</label>
-                        <input type="text" id="github-user" placeholder="jouwnaam" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+                        <input type="text" id="github-user" value="timmit147" placeholder="timmit147" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
                     </div>
                     <div>
                         <label class="block text-slate-300 font-medium mb-1">Data Repo Naam</label>
@@ -112,7 +112,7 @@
         let config = JSON.parse(localStorage.getItem('bodysync_config')) || {
             geminiKey: '',
             githubToken: '',
-            githubUser: '',
+            githubUser: 'timmit147',
             githubRepo: 'bodysync'
         };
 
@@ -132,19 +132,26 @@
         function loadConfigInputs() {
             document.getElementById('gemini-key').value = config.geminiKey || '';
             document.getElementById('github-token').value = config.githubToken || '';
-            document.getElementById('github-user').value = config.githubUser || '';
+            document.getElementById('github-user').value = config.githubUser || 'timmit147';
             document.getElementById('github-repo').value = config.githubRepo || 'bodysync';
+            
+            document.getElementById('connected-user-label').innerText = config.githubUser || 'timmit147';
             document.getElementById('connected-repo-label').innerText = config.githubRepo || 'bodysync';
+            document.getElementById('sidebar-repo-title').innerText = `${config.githubRepo || 'bodysync'} / health_log.json`;
         }
 
         function saveSettings() {
             config.geminiKey = document.getElementById('gemini-key').value.trim();
             config.githubToken = document.getElementById('github-token').value.trim();
-            config.githubUser = document.getElementById('github-user').value.trim();
+            config.githubUser = document.getElementById('github-user').value.trim() || 'timmit147';
             config.githubRepo = document.getElementById('github-repo').value.trim() || 'bodysync';
 
             localStorage.setItem('bodysync_config', JSON.stringify(config));
+            
+            document.getElementById('connected-user-label').innerText = config.githubUser;
             document.getElementById('connected-repo-label').innerText = config.githubRepo;
+            document.getElementById('sidebar-repo-title').innerText = `${config.githubRepo} / health_log.json`;
+            
             toggleKeyModal();
             fetchGitHubLogs();
         }
@@ -262,7 +269,7 @@
             if (!text) return;
 
             if (!config.geminiKey || !config.githubToken || !config.githubUser) {
-                alert("Stel eerst je Gemini API Key en GitHub gegevens in.");
+                alert("Stel eerst je Gemini API Key en GitHub PAT Token in via Instellingen.");
                 toggleKeyModal();
                 return;
             }
@@ -286,7 +293,7 @@
 
                 // AI Antwoord bijwerken in chat
                 const confirmationTag = parsed.logData 
-                    ? `<div class="mt-2 text-[11px] text-emerald-400/90 flex items-center gap-1 font-mono">✓ Opgeslagen in ${config.githubRepo}/health_log.json</div>` 
+                    ? `<div class="mt-2 text-[11px] text-emerald-400/90 flex items-center gap-1 font-mono">✓ Opgeslagen in ${config.githubUser}/${config.githubRepo}</div>` 
                     : '';
                 
                 updateChatMessage(loadingId, parsed.reply + confirmationTag);
@@ -326,7 +333,8 @@
         }
 
         async function callGeminiAPI(userText) {
-            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiKey}`;
+            // Geüpdatet naar gemini-2.0-flash voor een werkende API-call
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiKey}`;
             
             const prompt = `
                 Je bent een slimme AI-gezondheidscoach voor het hele lichaam. Gebruiker typt: "${userText}".
