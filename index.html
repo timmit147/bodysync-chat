@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BodySync Chat AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 flex flex-col h-screen">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-xl">
+                💪
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-slate-100 leading-tight">BodySync Chat</h1>
+                <p class="text-[11px] text-emerald-400 font-medium">Gekoppeld aan privé-repo: <span id="connected-repo-label" class="underline">bodysync</span></p>
+            </div>
+        </div>
+        <button onclick="toggleKeyModal()" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-2 rounded-lg border border-slate-600 transition flex items-center gap-1.5">
+            ⚙️ <span>Instellingen</span>
+        </button>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden">
+        
+        <!-- Chat Area -->
+        <main class="flex-1 flex flex-col border-r border-slate-800">
+            <div id="chat-box" class="flex-1 p-4 overflow-y-auto space-y-4">
+                <div class="text-center text-slate-500 my-12 text-sm space-y-2">
+                    <p class="text-2xl">👋</p>
+                    <p class="font-medium">Welkom bij BodySync!</p>
+                    <p class="text-xs text-slate-600 max-w-sm mx-auto">Typ wat je vandaag hebt gedaan (stappen, slaap, voeding, klachten of workouts). De AI analyseert het en slaat het op in je privé-repo <code class="text-emerald-400">bodysync</code>.</p>
+                </div>
+            </div>
+
+            <!-- Invoerformulier -->
+            <form onsubmit="handleSend(event)" class="p-4 bg-slate-800 border-t border-slate-700 flex gap-2">
+                <input 
+                    type="text" 
+                    id="user-input" 
+                    placeholder="Bijv: Vandaag 8500 stappen gezet, 7.5 uur geslapen en gezond gegeten..." 
+                    class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 text-slate-100 placeholder-slate-500"
+                    required
+                >
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition flex items-center gap-1">
+                    <span>Verstuur</span>
+                    <span>➔</span>
+                </button>
+            </form>
+        </main>
+
+        <!-- Sidebar met Live Data uit Repo -->
+        <aside class="w-80 bg-slate-800/40 p-4 overflow-y-auto hidden md:block">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    📂 <span>bodysync / health_log.json</span>
+                </h2>
+                <button onclick="fetchGitHubLogs()" class="text-xs text-emerald-400 hover:text-emerald-300 underline">Ververs</button>
+            </div>
+            <div id="log-list" class="space-y-3">
+                <p class="text-xs text-slate-500 italic">Laden van data uit GitHub...</p>
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Modal voor API Keys & GitHub Instellingen -->
+    <div id="key-modal" class="fixed inset-0 bg-black/75 flex items-center justify-center hidden p-4 z-50">
+        <div class="bg-slate-800 p-6 rounded-xl max-w-md w-full border border-slate-700 space-y-4 shadow-2xl">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">🔑 Instellingen & Keys</h3>
+                <button onclick="toggleKeyModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
+            </div>
+            
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Google Gemini API Key</label>
+                    <input type="password" id="gemini-key" placeholder="AIzaSy..." class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+                    <p class="text-[10px] text-slate-500 mt-0.5">Gratis op te halen via Google AI Studio.</p>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">GitHub Personal Access Token (PAT)</label>
+                    <input type="password" id="github-token" placeholder="github_pat_..." class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+                    <p class="text-[10px] text-slate-500 mt-0.5">Token met 'Contents: Read and Write' rechten.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-slate-300 font-medium mb-1">GitHub Gebruikersnaam</label>
+                        <input type="text" id="github-user" placeholder="jouwnaam" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 font-medium mb-1">Data Repo Naam</label>
+                        <input type="text" id="github-repo" value="bodysync" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2 border-t border-slate-700">
+                <button onclick="toggleKeyModal()" class="px-4 py-2 text-xs bg-slate-700 hover:bg-slate-600 rounded text-slate-300">Annuleren</button>
+                <button onclick="saveSettings()" class="px-4 py-2 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded transition">Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // Config state in localStorage van browser
+        let config = JSON.parse(localStorage.getItem('bodysync_config')) || {
+            geminiKey: '',
+            githubToken: '',
+            githubUser: '',
+            githubRepo: 'bodysync'
+        };
+
+        window.onload = () => {
+            loadConfigInputs();
+            if (!config.geminiKey || !config.githubToken || !config.githubUser) {
+                toggleKeyModal();
+            } else {
+                fetchGitHubLogs();
+            }
+        };
+
+        function toggleKeyModal() {
+            document.getElementById('key-modal').classList.toggle('hidden');
+        }
+
+        function loadConfigInputs() {
+            document.getElementById('gemini-key').value = config.geminiKey || '';
+            document.getElementById('github-token').value = config.githubToken || '';
+            document.getElementById('github-user').value = config.githubUser || '';
+            document.getElementById('github-repo').value = config.githubRepo || 'bodysync';
+            document.getElementById('connected-repo-label').innerText = config.githubRepo || 'bodysync';
+        }
+
+        function saveSettings() {
+            config.geminiKey = document.getElementById('gemini-key').value.trim();
+            config.githubToken = document.getElementById('github-token').value.trim();
+            config.githubUser = document.getElementById('github-user').value.trim();
+            config.githubRepo = document.getElementById('github-repo').value.trim() || 'bodysync';
+
+            localStorage.setItem('bodysync_config', JSON.stringify(config));
+            document.getElementById('connected-repo-label').innerText = config.githubRepo;
+            toggleKeyModal();
+            fetchGitHubLogs();
+        }
+
+        // --- GITHUB REST API ENGINE ---
+
+        function utf8_to_b64(str) {
+            return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+        }
+
+        function b64_to_utf8(str) {
+            return decodeURIComponent(Array.prototype.map.call(atob(str.replace(/\s/g, '')), c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+        }
+
+        async function getFileFromGitHub() {
+            const url = `https://api.github.com/repos/${config.githubUser}/${config.githubRepo}/contents/health_log.json`;
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${config.githubToken}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (response.status === 404) {
+                return { logs: [], sha: null };
+            }
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.message || "Fout bij ophalen uit GitHub");
+            }
+
+            const data = await response.json();
+            const contentDecoded = b64_to_utf8(data.content);
+            return {
+                logs: JSON.parse(contentDecoded),
+                sha: data.sha
+            };
+        }
+
+        async function saveToGitHub(newLog) {
+            const { logs, sha } = await getFileFromGitHub();
+            
+            // Voeg de nieuwe log toe bovenaan de lijst
+            logs.unshift(newLog);
+
+            const url = `https://api.github.com/repos/${config.githubUser}/${config.githubRepo}/contents/health_log.json`;
+            const updatedContentBase64 = utf8_to_b64(JSON.stringify(logs, null, 2));
+
+            const bodyData = {
+                message: `Update gezondheidslog: ${newLog.datum}`,
+                content: updatedContentBase64
+            };
+
+            if (sha) bodyData.sha = sha;
+
+            const response = await fetch(url, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${config.githubToken}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/vnd.github.v3+json'
+                },
+                body: JSON.stringify(bodyData)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.message || "Fout bij opslaan op GitHub");
+            }
+
+            return logs;
+        }
+
+        async function fetchGitHubLogs() {
+            const logList = document.getElementById('log-list');
+            if (!config.githubToken || !config.githubUser) {
+                logList.innerHTML = `<p class="text-xs text-amber-400">Vul je GitHub instellingen in om data te laden.</p>`;
+                return;
+            }
+
+            try {
+                logList.innerHTML = `<p class="text-xs text-slate-500 italic animate-pulse">Data ophalen uit '${config.githubRepo}'...</p>`;
+                const { logs } = await getFileFromGitHub();
+                renderLogs(logs);
+            } catch (err) {
+                logList.innerHTML = `<p class="text-xs text-red-400">Fout: ${err.message}</p>`;
+            }
+        }
+
+        function renderLogs(logs) {
+            const logList = document.getElementById('log-list');
+            if (!logs || logs.length === 0) {
+                logList.innerHTML = `<p class="text-xs text-slate-500 italic">Nog geen logs in 'health_log.json'.</p>`;
+                return;
+            }
+
+            logList.innerHTML = logs.map(log => `
+                <div class="bg-slate-800/80 border border-slate-700/80 p-3 rounded-lg space-y-1.5 shadow-sm">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="font-semibold text-emerald-400 px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800/40">${log.categorie || 'Algemeen'}</span>
+                        <span class="text-[10px] text-slate-500">${log.datum}</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed">${log.samenvatting}</p>
+                </div>
+            `).join('');
+        }
+
+        // --- AI CHAT LOGICA ---
+
+        async function handleSend(e) {
+            e.preventDefault();
+            const input = document.getElementById('user-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            if (!config.geminiKey || !config.githubToken || !config.githubUser) {
+                alert("Stel eerst je Gemini API Key en GitHub gegevens in.");
+                toggleKeyModal();
+                return;
+            }
+
+            addChatMessage('user', text);
+            input.value = '';
+
+            const loadingId = addChatMessage('ai', '<span class="animate-pulse">🔄 Analyseren en opslaan op GitHub...</span>');
+
+            try {
+                // 1. AI Verwerking
+                const aiRaw = await callGeminiAPI(text);
+                const parsed = parseAIOutput(aiRaw);
+
+                // 2. Commit naar de 'bodysync' privé-repo
+                if (parsed.logData) {
+                    parsed.logData.datum = new Date().toLocaleString('nl-NL');
+                    const updatedLogs = await saveToGitHub(parsed.logData);
+                    renderLogs(updatedLogs);
+                }
+
+                // AI Antwoord bijwerken in chat
+                const confirmationTag = parsed.logData 
+                    ? `<div class="mt-2 text-[11px] text-emerald-400/90 flex items-center gap-1 font-mono">✓ Opgeslagen in ${config.githubRepo}/health_log.json</div>` 
+                    : '';
+                
+                updateChatMessage(loadingId, parsed.reply + confirmationTag);
+
+            } catch (err) {
+                updateChatMessage(loadingId, '❌ Fout: ' + err.message);
+            }
+        }
+
+        function addChatMessage(role, text) {
+            const chatBox = document.getElementById('chat-box');
+            const id = 'msg-' + Date.now();
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const html = `
+                <div id="${id}" class="flex flex-col ${role === 'user' ? 'items-end' : 'items-start'}">
+                    <div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                        role === 'user' 
+                        ? 'bg-emerald-600 text-white rounded-br-none shadow-md' 
+                        : 'bg-slate-800 text-slate-200 border border-slate-700/80 rounded-bl-none shadow-md'
+                    }">
+                        ${text}
+                    </div>
+                    <span class="text-[10px] text-slate-500 mt-1 px-1">${time}</span>
+                </div>
+            `;
+            chatBox.insertAdjacentHTML('beforeend', html);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return id;
+        }
+
+        function updateChatMessage(id, text) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.querySelector('div').innerHTML = text;
+            }
+        }
+
+        async function callGeminiAPI(userText) {
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiKey}`;
+            
+            const prompt = `
+                Je bent een slimme AI-gezondheidscoach voor het hele lichaam. Gebruiker typt: "${userText}".
+                
+                Taken:
+                1. Geef een kort, empathisch en deskundig antwoord (maximaal 2-3 zinnen).
+                2. Extraheer relevante gezondheids- en lichamelijke gegevens en plaats dit exact als JSON-blok onderaan:
+                
+                \`\`\`json
+                {
+                   "categorie": "Slaap|Beweging|Voeding|Klachten|Herstel|Overig",
+                   "samenvatting": "Beknopte weergave van de data (bijv: 8500 stappen, 7.5 uur geslapen)"
+                }
+                \`\`\`
+            `;
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error?.message || 'Gemini API fout');
+            return data.candidates[0].content.parts[0].text;
+        }
+
+        function parseAIOutput(rawText) {
+            const jsonMatch = rawText.match(/```json\n([\s\S]*?)\n```/);
+            let logData = null;
+            let reply = rawText;
+
+            if (jsonMatch) {
+                try {
+                    logData = JSON.parse(jsonMatch[1]);
+                    reply = rawText.replace(/```json\n[\s\S]*?\n```/, '').trim();
+                } catch (e) {
+                    console.error("JSON parse fout", e);
+                }
+            }
+
+            return { reply, logData };
+        }
+    </script>
+</body>
+</html>
