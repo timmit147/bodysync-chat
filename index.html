@@ -364,7 +364,7 @@
             addChatMessage('user', text);
             input.value = '';
 
-            const loadingId = addChatMessage('ai', '<span class="animate-pulse">🔄 Analyseren en verwerken...</span>');
+            const loadingId = addChatMessage('ai', '<span class="animate-pulse">🔄 Beschikbaar model ophalen & verwerken...</span>');
 
             try {
                 const aiRaw = await callGeminiSmart(text);
@@ -446,12 +446,27 @@
             if (el) el.querySelector('div').innerHTML = text;
         }
 
-        // --- GEMINI API (MET BULLETPROOF PROMPTING & ECHTE FOUTMELDINGEN) ---
+        // --- DYNAMISCHE MODEL SELECTIE VIA GOOGLE API ---
 
         async function callGeminiSmart(userPrompt) {
-            const models = ['gemini-2.0-flash', 'gemini-1.5-flash']; // Veilige modellenlijst
+            // 1. Vraag de lijst met ondersteunde modellen op bij Google voor deze specifieke API key
+            const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${config.geminiKey}`);
+            const listData = await listRes.json();
             
-            // LET OP: Systeem instructie is nu samengevoegd met je prompt om API restricties te omzeilen
+            if (!listRes.ok) {
+                throw new Error(listData.error?.message || "Kon de modellenlijst niet ophalen. Controleer je Gemini API Key.");
+            }
+
+            // Zoek een model uit dat content kan genereren (ondersteunt generateContent)
+            const availableModelObj = listData.models?.find(m => m.supportedGenerationMethods?.includes("generateContent"));
+            
+            if (!availableModelObj) {
+                throw new Error("Geen enkel geschikt Gemini model gevonden voor deze API key.");
+            }
+
+            // Haal de schone naam op (bijv. "models/gemini-pro" wordt "gemini-pro")
+            const modelName = availableModelObj.name.replace("models/", "");
+
             const systemPromptText = `Je bent de BodySync AI assistent. Je antwoordt ALTIJD met een geldig JSON-object.
 
 Gebruik exact een van de volgende structuren:
@@ -497,35 +512,23 @@ Gebruik exact een van de volgende structuren:
                 }
             };
 
-            let errorMessage = "Geen specifieke fout gevonden.";
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${config.geminiKey}`;
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
 
-            for (const model of models) {
-                try {
-                    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.geminiKey}`;
-                    const res = await fetch(endpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    const data = await res.json();
-                    
-                    if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                        return data.candidates[0].content.parts[0].text;
-                    } else {
-                        // Vang de ECHTE fout van Google op
-                        console.warn(`Model ${model} weigerde:`, data);
-                        if (data.error && data.error.message) {
-                            errorMessage = data.error.message;
-                        }
-                    }
-                } catch (e) {
-                    console.warn(`Fetch error bij ${model}:`, e);
-                    errorMessage = e.message;
-                }
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error?.message || `Fout bij genereren via model ${modelName}`);
             }
-            // Als we hier zijn, gooi dan de ECHTE fout naar het scherm!
-            throw new Error(`Google API weigert de verbinding. Reden: ${errorMessage}`);
+
+            if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                return data.candidates[0].content.parts[0].text;
+            } else {
+                throw new Error("Ongeldig antwoord ontvangen van de AI.");
+            }
         }
 
         function parseSmartOutput(rawText) {
