@@ -194,9 +194,19 @@
             if (!config.geminiKey || !config.githubToken) {
                 toggleKeyModal();
             } else {
-                fetchAllData();
+                initApp();
             }
         };
+
+        async function initApp() {
+            await fetchAllData();
+            // Als er nog helemaal geen gespreksgeschiedenis is, neemt de AI zelf
+            // het initiatief en opent ze het gesprek met een gerichte vraag,
+            // in plaats van te wachten tot de gebruiker als eerste iets typt.
+            if (cachedConversations.length === 0) {
+                startProactiveConversation();
+            }
+        }
 
         function switchTab(tab) {
             const chatView = document.getElementById('view-chat');
@@ -337,7 +347,7 @@
             const recent = [...convs].slice(-15).reverse();
             list.innerHTML = recent.map(c => `
                 <div class="bg-slate-800/60 border border-slate-700/60 p-2 rounded text-xs space-y-1">
-                    <p class="font-bold text-sky-300">Jij: ${escapeHtml(c.user)}</p>
+                    ${c.user ? `<p class="font-bold text-sky-300">Jij: ${escapeHtml(c.user)}</p>` : `<p class="font-bold text-emerald-300">🤖 AI nam zelf het initiatief</p>`}
                     <p class="text-slate-300">AI: ${escapeHtml(c.ai || c.reply || '')}</p>
                     <span class="text-[9px] text-slate-500">${c.datum || ''}</span>
                 </div>
@@ -364,14 +374,16 @@
 
             let html = welcomeHTML;
             convs.forEach(c => {
-                html += `
-                    <div class="flex flex-col items-end">
-                        <div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-emerald-600 text-white rounded-br-none shadow-md">
-                            ${escapeHtml(c.user)}
+                if (c.user) {
+                    html += `
+                        <div class="flex flex-col items-end">
+                            <div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-emerald-600 text-white rounded-br-none shadow-md">
+                                ${escapeHtml(c.user)}
+                            </div>
+                            <span class="text-[10px] text-slate-500 mt-1 px-1">${c.datum || ''}</span>
                         </div>
-                        <span class="text-[10px] text-slate-500 mt-1 px-1">${c.datum || ''}</span>
-                    </div>
-                `;
+                    `;
+                }
                 html += `
                     <div class="flex flex-col items-start">
                         <div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-slate-800 text-slate-200 border border-slate-700/80 rounded-bl-none shadow-md">
@@ -445,7 +457,7 @@
             addChatMessage('user', text);
             input.value = '';
 
-            const loadingId = addChatMessage('ai', '<span class="animate-pulse">🔄 Slim model selecteren & geheugen raadplegen...</span>');
+            const loadingId = addChatMessage('ai', '<span class="animate-pulse text-emerald-400">🔄 Even nadenken...</span>');
 
             try {
                 const aiRaw = await callGeminiWithSmartFallback(text, cachedConversations, cachedLogs);
@@ -481,24 +493,52 @@
                 updateChatMessage(loadingId, finalReplyHtml);
 
                 // Opslaan in gespreksgeheugen (chat_history.json) in de data-repo
-                const newInteraction = {
-                    user: text,
-                    ai: finalReplyHtml,
-                    reply: parsed.reply,
-                    type: parsed.type,
-                    datum: timestamp
-                };
-                cachedConversations.push(newInteraction);
-                
-                const { content: chatHistContent, sha: chatSha } = await fetchGitHubFile(config.dataRepo, 'chat_history.json');
-                const chatArr = chatHistContent ? JSON.parse(chatHistContent) : [];
-                chatArr.push(newInteraction);
-                await commitGitHubFile(config.dataRepo, 'chat_history.json', JSON.stringify(chatArr, null, 2), `Geheugen update: ${timestamp}`, chatSha);
-                
-                renderConversations(cachedConversations);
+                await persistInteraction(text, parsed, finalReplyHtml, timestamp);
 
             } catch (err) {
                 updateChatMessage(loadingId, '❌ Fout: ' + err.message);
+            }
+        }
+
+        // Slaat een interactie op in het gespreksgeheugen (chat_history.json).
+        // Wordt gebruikt door zowel handleSend als startProactiveConversation,
+        // zodat beide dezelfde geheugen-logica delen.
+        async function persistInteraction(userText, parsed, finalReplyHtml, timestamp) {
+            const newInteraction = {
+                user: userText,
+                ai: finalReplyHtml,
+                reply: parsed.reply,
+                type: parsed.type,
+                datum: timestamp
+            };
+            cachedConversations.push(newInteraction);
+
+            const { content: chatHistContent, sha: chatSha } = await fetchGitHubFile(config.dataRepo, 'chat_history.json');
+            const chatArr = chatHistContent ? JSON.parse(chatHistContent) : [];
+            chatArr.push(newInteraction);
+            await commitGitHubFile(config.dataRepo, 'chat_history.json', JSON.stringify(chatArr, null, 2), `Geheugen update: ${timestamp}`, chatSha);
+
+            renderConversations(cachedConversations);
+            return newInteraction;
+        }
+
+        // Laat de AI zelf het gesprek openen (bijv. bij de allereerste keer openen),
+        // in plaats van te wachten tot de gebruiker als eerste typt.
+        async function startProactiveConversation() {
+            const loadingId = addChatMessage('ai', '<span class="animate-pulse">🔄 Ik kijk naar je gegevens...</span>');
+            try {
+                const aiRaw = await callGeminiWithSmartFallback('___SYSTEEM_START___', cachedConversations, cachedLogs);
+                const parsed = parseSmartOutput(aiRaw);
+                const timestamp = new Date().toLocaleString('nl-NL');
+
+                updateChatMessage(loadingId, parsed.reply);
+                await persistInteraction('', parsed, parsed.reply, timestamp);
+            } catch (err) {
+                // Lukt het automatisch starten niet (bv. geen internet of ongeldige key)?
+                // Verwijder dan gewoon het laad-berichtje weer, de gebruiker kan altijd zelf typen.
+                const el = document.getElementById(loadingId);
+                if (el) el.remove();
+                console.error('Kon niet automatisch starten:', err);
             }
         }
 
@@ -585,44 +625,46 @@
 
             let logsContext = "\n--- GEZONDHEIDSLOGS ---\n" + JSON.stringify(logsArr.slice(-10), null, 2);
 
-            const systemPromptText = `Je bent de BodySync AI assistent met een permanent geheugen. Je onthoudt alles wat de gebruiker zegt en wordt in elke interactie slimmer en meer toegespitst op de gebruiker.
-Je antwoordt ALTIJD met een geldig JSON-object.
+            const isSystemStart = userPrompt === '___SYSTEEM_START___';
 
-Gebruik exact een van de volgende structuren:
+            const systemPromptText = `Je bent BodySync, een Nederlandse gezondheidscoach-AI met permanent geheugen.
 
-1. Voor gezondheidsdata loggen (als de gebruiker gezondheidsdata deelt):
-{
-  "type": "log",
-  "reply": "Korte vriendelijke reactie waarin je bevestigt wat je hebt opgeslagen in de data-repo",
-  "logData": {
-    "categorie": "Slaap|Beweging|Voeding|Klachten|Herstel|Overig",
-    "samenvatting": "Korte samenvatting van de ingevoerde data"
-  }
-}
+## TAAL
+Antwoord ALTIJD in het Nederlands. Nooit in het Engels. Geen uitzonderingen.
 
-2. Voor visuele UI widgets op het scherm:
-{
-  "type": "ui_widget",
-  "reply": "Reactie naar de gebruiker",
-  "widgetTitle": "Titel van de widget",
-  "htmlSnippet": "<div class='text-xs space-y-1'>...</div>"
-}
+## JIJ LEIDT HET GESPREK
+Dit is cruciaal: JIJ neemt het initiatief. JIJ stelt vragen. De gebruiker hoeft niet te weten wat hij moet zeggen.
+- Stel altijd 1 concrete, gerichte vervolgvraag aan het einde van je antwoord.
+- Wacht niet af. Als de gebruiker iets vaags zegt, vraag je door.
+- Je doel is data verzamelen over: slaap, energie, voeding, beweging, stress, klachten, herstel.
+- Als je genoeg data hebt over een onderwerp, analyseer je patronen en geef je concrete suggesties.
+- Zoek actief naar oorzaken van klachten door slimme vragen te stellen (bijv. "Hoe laat ging je gisteren slapen?" of "Wat had je die dag gegeten?").
 
-3. Voor het maken van een HTML bestand (app-repo):
-{
-  "type": "create_file",
-  "reply": "Reactie naar de gebruiker",
-  "fileName": "doelen.html",
-  "fileContent": "<!DOCTYPE html><html><head><title>Doelen</title><script src='https://cdn.tailwindcss.com'><\\/script></head><body class='bg-slate-900 text-white p-6'><h1>Mijn Gezondheidsdoelen</h1></body></html>"
-}
+## BIJ EERSTE BEGROETING (___SYSTEEM_START___)
+Stel jezelf voor en stel direct een openingsvraag over hoe de gebruiker zich vandaag voelt. Vriendelijk en concreet.
 
-4. Voor een normaal gesprek / geheugen antwoord:
-{
-  "type": "chat",
-  "reply": "Jouw gedetailleerde, slimme antwoord waarbij je rekening houdt met het eerdere geheugen en alle opgeslagen gegevens."
-}`;
+## ANTWOORDFORMAAT
+Je antwoordt ALTIJD met een geldig JSON-object. Geen tekst buiten de JSON. Geen markdown backticks.
 
-            const fullPrompt = systemPromptText + "\n\n" + historyContext + logsContext + "\n\n--- HUIDIGE VRAAG / MEDEDELING VAN GEBRUIKER ---\n" + userPrompt;
+Kies exact een van deze structuren:
+
+1. Normaal gesprek / doorvragen / analyse / suggesties:
+{"type":"chat","reply":"Jouw Nederlandse antwoord hier. Eindig ALTIJD met een concrete vervolgvraag."}
+
+2. Gezondheidsdata opslaan (als gebruiker data deelt over slaap/voeding/beweging/klachten):
+{"type":"log","reply":"Bevestig in het Nederlands wat je opslaat. Stel daarna een vervolgvraag.","logData":{"categorie":"Slaap|Beweging|Voeding|Klachten|Herstel|Stress|Overig","samenvatting":"Korte Nederlandse samenvatting van de data"}}
+
+3. UI widget tonen (alleen als expliciet gevraagd):
+{"type":"ui_widget","reply":"Nederlandse reactie","widgetTitle":"Titel","htmlSnippet":"<div class='text-xs'>...</div>"}
+
+4. HTML pagina aanmaken (alleen als expliciet gevraagd):
+{"type":"create_file","reply":"Nederlandse reactie","fileName":"pagina.html","fileContent":"<!DOCTYPE html>..."}`;
+
+            const userSection = isSystemStart
+                ? '\n\n--- INSTRUCTIE ---\nDit is het allereerste berichtje. Stel jezelf voor en stel een openingsvraag.'
+                : `\n\n--- VRAAG/BERICHT VAN GEBRUIKER ---\n${userPrompt}`;
+
+            const fullPrompt = systemPromptText + "\n\n" + historyContext + logsContext + userSection;
 
             const payload = {
                 contents: [{
@@ -664,13 +706,22 @@ Gebruik exact een van de volgende structuren:
             try {
                 const firstBrace = rawText.indexOf('{');
                 const lastBrace = rawText.lastIndexOf('}');
-                
+
                 if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
                     const cleanJsonStr = rawText.substring(firstBrace, lastBrace + 1);
                     const parsed = JSON.parse(cleanJsonStr);
-                    
+
+                    // Zet newlines om naar <br> zodat de tekst netjes wordt getoond.
+                    // Strip ook eventuele markdown ** bold ** zodat er geen sterretjes verschijnen.
+                    function formatReply(text) {
+                        if (!text) return '';
+                        return text
+                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\n/g, '<br>');
+                    }
+
                     return {
-                        reply: parsed.reply || 'Verwerkt.',
+                        reply: formatReply(parsed.reply) || 'Verwerkt.',
                         type: parsed.type || 'chat',
                         logData: parsed.logData || null,
                         widgetTitle: parsed.widgetTitle || 'Widget',
@@ -682,7 +733,9 @@ Gebruik exact een van de volgende structuren:
             } catch (e) {
                 console.error("JSON parse error:", e);
             }
-            return { reply: rawText, type: 'chat' };
+            // Fallback: als de JSON niet parseerbaar is, toon dan een foutmelding
+            // in plaats van ruwe JSON in de chat te dumpen.
+            return { reply: 'Er ging iets mis bij het verwerken van het antwoord. Probeer het opnieuw.', type: 'chat' };
         }
     </script>
 </body>
